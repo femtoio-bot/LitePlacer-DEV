@@ -39,7 +39,7 @@ namespace LitePlacer
 {
     // Note: For function success/failure, I use bool return code. (instead of C# exceptions; a philosophical debate, let's not go there.)
     // The naming convention is xxx_m() for functions that have already displayed an error message to user. If a function only
-    // calls _m functions, it can consider itself a _m function.
+    // calls _m functions, it can consider itself a _m function. 
 
     public partial class FormMain : Form
     {
@@ -177,55 +177,118 @@ namespace LitePlacer
                 DataGridViewDataErrorEventHandler(Display_dataGridView_DataError);
         }
 
-        private void CheckBuildNumber()
+        // ==============================================================================================
+        // New software release checks
+
+        private string BuildDate()
         {
             // see http://stackoverflow.com/questions/1600962/displaying-the-build-date
-
             var version = Assembly.GetEntryAssembly().GetName().Version;
             var buildDateTime = new DateTime(2000, 1, 1).Add(new TimeSpan(
             TimeSpan.TicksPerDay * version.Build + // days since 1 January 2000
             TimeSpan.TicksPerSecond * 2 * version.Revision)); // seconds since midnight, (multiply by 2 to get original)
-            DisplayText("Version: " + version.ToString() + ", build date: " + buildDateTime.ToString());
-            CheckForUpdate_checkBox.Checked = Properties.Settings.Default.General_CheckForUpdates;
-            if (CheckForUpdate_checkBox.Checked)
+            return buildDateTime.ToString();
+        }
+
+        private bool UpdateAvailable(out string UpdateDescription)
+        {
+            try
             {
-                try
+                var url = "http://www.liteplacer.com/Downloads/release.txt";
+                UpdateDescription = (new WebClient()).DownloadString(url);
+                string UpdateDate = "";
+                for (int i = 0; i < UpdateDescription.Length; i++)
                 {
-                    var url = "http://www.liteplacer.com/Downloads/release.txt";
-                    string UpdateText = (new WebClient()).DownloadString(url);
-                    string UpdateDate="";
-                    for (int i = 0; i < UpdateText.Length; i++)
+                    if (UpdateDescription[i] == '\n')
                     {
-                        if (UpdateText[i]=='\n')
-                        {
-                            break;
-                        }
-                        UpdateDate += UpdateText[i];
+                        break;
                     }
-                    string BuildDate = "Build date " + buildDateTime.ToString().Substring(0, 10);
-                    BuildDate = BuildDate.Trim();
-                    if (UpdateDate != BuildDate)
-                    {
-                        ShowMessageBox(
-                            "There is software update available:\n\r\n\r" + UpdateText,
-                            "Update available",
-                            MessageBoxButtons.OK);
-                    }
+                    UpdateDate += UpdateDescription[i];
                 }
-                catch
+                string BuildDateText = "Build date " + BuildDate().Substring(0, 10);
+                BuildDateText = BuildDateText.Trim();
+                if (UpdateDate != BuildDateText)
                 {
-                    DisplayText("Could not read http://www.liteplacer.com/Downloads/release.txt, update info not available.");
+                    return true;
+                }
+            }
+            catch
+            {
+                DisplayText("Could not read http://www.liteplacer.com/Downloads/release.txt, update info not available.");
+                UpdateDescription = "";
+                return false;
+            }
+            return false;
+        }
+
+        private bool CheckForUpdate()
+        {
+            string UpdateText;
+            if (UpdateAvailable(out UpdateText))
+            {
+                ShowMessageBox(
+                    "There is software update available:\n\r" + UpdateText,
+                    "Update available",
+                    MessageBoxButtons.OK);
+                return true;
+            }
+            return false;
+        }
+
+        private void CheckNow_button_Click(object sender, EventArgs e)
+        {
+            if (!CheckForUpdate())
+            {
+                ShowMessageBox(
+                    "The software is up to date",
+                    "Up to date",
+                    MessageBoxButtons.OK);
+            }
+        }
+
+        // ==============================================================================================
+        // For diagnostics, log button presses. (Customers tend to send log window contents,
+        // but the window does not log user actions without this.)
+        // http://stackoverflow.com/questions/17949390/log-all-button-clicks-in-win-forms-app
+
+        public void AttachButtonLogging(System.Windows.Forms.Control.ControlCollection controls)
+        {
+            foreach (var control in controls.Cast<System.Windows.Forms.Control>())
+            {
+                if (control is Button)
+                {
+                    Button button = (Button)control;
+                    button.MouseDown += LogButtonClick; // MoseDown comes before mouse click, we want this to fire first)
+                }
+                else
+                {
+                    AttachButtonLogging(control.Controls);
                 }
             }
         }
 
+        private void LogButtonClick(object sender, EventArgs eventArgs)
+        {
+
+            Button button = sender as Button;
+            DisplayText(button.Text.ToString(), KnownColor.DarkGreen);
+        }
+        // ==============================================================================================
+
         private string LastTabPage = "";
 
+        // ==============================================================================================
         private void FormMain_Shown(object sender, EventArgs e)
         {
             LabelTestButtons();
+            AttachButtonLogging(this.Controls);
 
-            CheckBuildNumber();
+            DisplayText("Version: " + Assembly.GetEntryAssembly().GetName().Version.ToString() + ", build date: " + BuildDate());
+            CheckForUpdate_checkBox.Checked = Properties.Settings.Default.General_CheckForUpdates;
+            if (CheckForUpdate_checkBox.Checked)
+            {
+                CheckForUpdate();
+            }
 
             OmitNeedleCalibration_checkBox.Checked = Properties.Settings.Default.Placement_OmitNeedleCalibration;
             SkipMeasurements_checkBox.Checked = Properties.Settings.Default.Placement_SkipMeasurements;
@@ -284,6 +347,8 @@ namespace LitePlacer
                 UpdateWindowValues_m();
             }
             StartCameras();
+
+            DisableLog_checkBox.Checked = Properties.Settings.Default.General_MuteLogging;
             StartingUp = false;
         }
 
@@ -294,6 +359,7 @@ namespace LitePlacer
             Properties.Settings.Default.CNC_EnableMouseWheelJog = MouseScroll_checkBox.Checked;
             Properties.Settings.Default.CNC_EnableNumPadJog = NumPadJog_checkBox.Checked;
             Properties.Settings.Default.General_CheckForUpdates = CheckForUpdate_checkBox.Checked;
+            Properties.Settings.Default.General_MuteLogging = DisableLog_checkBox.Checked;
 
             Properties.Settings.Default.Save();
             string path = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None).FilePath;
@@ -391,7 +457,6 @@ namespace LitePlacer
 
         private void tabControlPages_Selecting(object sender, TabControlCancelEventArgs e)
         {
-            // DisplayText("tabControlPages_Selecting: Leaving " + LastTabPage);
             switch (LastTabPage)
             {
                 case "RunJob_tabPage":
@@ -609,7 +674,6 @@ namespace LitePlacer
         // =================================================================================
         private void MouseWheel_event(object sender, MouseEventArgs e)
         {
-            // DisplayText("Wheel: " + e.Delta.ToString());
             if (!MouseScroll_checkBox.Checked)
             {
                 return;
@@ -686,8 +750,8 @@ namespace LitePlacer
 
         public void My_KeyUp(object sender, KeyEventArgs e)
         {
-            if ((e.KeyCode == Keys.NumPad1) || (e.KeyCode == Keys.NumPad2) || (e.KeyCode == Keys.NumPad3) || 
-                (e.KeyCode == Keys.NumPad4) || (e.KeyCode == Keys.NumPad6) || 
+            if ((e.KeyCode == Keys.NumPad1) || (e.KeyCode == Keys.NumPad2) || (e.KeyCode == Keys.NumPad3) ||
+                (e.KeyCode == Keys.NumPad4) || (e.KeyCode == Keys.NumPad6) ||
                 (e.KeyCode == Keys.NumPad7) || (e.KeyCode == Keys.NumPad8) || (e.KeyCode == Keys.NumPad9))
             {
                 if (!NumPadJog_checkBox.Checked)
@@ -699,7 +763,6 @@ namespace LitePlacer
                     return;
                 };
                 JoggingBusy = false;
-                //DisplayText("arrow key up");
                 e.Handled = true;
                 e.SuppressKeyPress = true;
                 Cnc.RawWrite("!%");
@@ -740,7 +803,7 @@ namespace LitePlacer
                 {
                     return;
                 }
-                if ( (ActiveControl is TextBox)||(ActiveControl is NumericUpDown)||(ActiveControl is MaskedTextBox))
+                if ((ActiveControl is TextBox) || (ActiveControl is NumericUpDown) || (ActiveControl is MaskedTextBox))
                 {
                     return;
                 }
@@ -789,43 +852,31 @@ namespace LitePlacer
             else if (e.KeyCode == Keys.NumPad3)
             {
                 JoggingBusy = true;
-                //DisplayText("left");
-                //return;
-                Cnc.RawWrite(Movestr + "Y0"+ "X" + Properties.Settings.Default.General_MachineSizeX.ToString() + "\"}");
+                Cnc.RawWrite(Movestr + "Y0" + "X" + Properties.Settings.Default.General_MachineSizeX.ToString() + "\"}");
             }
             else if (e.KeyCode == Keys.NumPad4)
             {
                 JoggingBusy = true;
-                //DisplayText("left");
-                //return;
                 Cnc.RawWrite(Movestr + "X0\"}");
             }
             else if (e.KeyCode == Keys.NumPad6)
             {
                 JoggingBusy = true;
-                //DisplayText("right");
-                //return;
                 Cnc.RawWrite(Movestr + "X" + Properties.Settings.Default.General_MachineSizeX.ToString() + "\"}");
             }
             else if (e.KeyCode == Keys.NumPad7)
             {
                 JoggingBusy = true;
-                //DisplayText("up");
-                //return;
                 Cnc.RawWrite(Movestr + "X0" + "Y" + Properties.Settings.Default.General_MachineSizeY.ToString() + "\"}");
             }
             else if (e.KeyCode == Keys.NumPad8)
             {
                 JoggingBusy = true;
-                //DisplayText("up");
-                //return;
                 Cnc.RawWrite(Movestr + "Y" + Properties.Settings.Default.General_MachineSizeY.ToString() + "\"}");
             }
             else if (e.KeyCode == Keys.NumPad9)
             {
                 JoggingBusy = true;
-                //DisplayText("up");
-                //return;
                 Cnc.RawWrite(Movestr + "X" + Properties.Settings.Default.General_MachineSizeX.ToString() + "Y" + Properties.Settings.Default.General_MachineSizeY.ToString() + "\"}");
             }
             else
@@ -1034,17 +1085,6 @@ namespace LitePlacer
             if (MouseButtons == MouseButtons.Left)
             {
                 DisplayText("X: " + MouseX.ToString() + ", Y: " + MouseY.ToString());
-                //double Xmm, Ymm;
-                //PictureBox_MouseDragged = true;
-                //BoxTo_mms(out Xmm, out Ymm, MouseX, MouseY, Box);
-                //CNC_XY_m(Cnc.CurrentX + Xmm, Cnc.CurrentY - Ymm);
-                //while (!CNC_BlockingWriteDone)
-                //{
-                //    Thread.Sleep(2);
-                //    Application.DoEvents();
-                //}
-
-
             }
         }
 
@@ -1368,7 +1408,7 @@ namespace LitePlacer
         {
             if (Cnc.ErrorState)
             {
-                DisplayText("### " + s + " igneored, cnc is in error state");
+                DisplayText("### " + s + " ignored, cnc is in error state", KnownColor.Red);
                 return false;
             };
 
@@ -1396,8 +1436,13 @@ namespace LitePlacer
                     CNC_BlockingWriteDone = true;
                     JoggingBusy = false;
                     Cnc.Error();
+                    ValidMeasurement_checkBox.Checked = false;
                     return false;
                 }
+            }
+            if (!CNC_WriteOk)
+            {
+                ValidMeasurement_checkBox.Checked = false;
             }
             return (CNC_WriteOk);
         }
@@ -1477,7 +1522,7 @@ namespace LitePlacer
             }
             if (Cnc.ErrorState)
             {
-                DisplayText("### Cnc in error state, ignored");
+                DisplayText("### Cnc in error state, ignored", KnownColor.Red);
                 return false;
             }
             if (AbortPlacement)
@@ -1547,7 +1592,7 @@ namespace LitePlacer
             }
             if (Cnc.ErrorState)
             {
-                DisplayText("### Cnc in error state, ignored");
+                DisplayText("### Cnc in error state, ignored", KnownColor.Red);
                 return false;
             }
             if (AbortPlacement)
@@ -1685,7 +1730,7 @@ namespace LitePlacer
             DisplayText("CNC_A_m, a: " + A.ToString());
             if (Cnc.ErrorState)
             {
-                DisplayText("### Cnc in error state, ignored");
+                DisplayText("### Cnc in error state, ignored", KnownColor.Red);
                 return false;
             }
             if (!Cnc.Connected)
@@ -1874,6 +1919,7 @@ namespace LitePlacer
 
         private void OpticalHome_button_Click(object sender, EventArgs e)
         {
+            ValidMeasurement_checkBox.Checked = false;
             if (!MechanicalHoming_m())
             {
                 return;
@@ -2050,7 +2096,7 @@ namespace LitePlacer
             DownCamera.BoxSizeX = 200;
             DownCamera.BoxSizeY = 200;
             DownCamera.BoxRotationDeg = 0;
-            DownCamera.ImageBox = this.Cam_pictureBox;
+            DownCamera.ImageBox = Cam_pictureBox;
             DownCamera.Mirror = false;
             DownCamera.ClearDisplayFunctionsList();
             DownCamera.SnapshotColor = Properties.Settings.Default.DownCam_SnapshotColor;
@@ -2080,7 +2126,7 @@ namespace LitePlacer
             UpCamera.BoxSizeX = 200;
             UpCamera.BoxSizeY = 200;
             UpCamera.BoxRotationDeg = 0;
-            UpCamera.ImageBox = this.Cam_pictureBox;
+            UpCamera.ImageBox = Cam_pictureBox;
             UpCamera.Mirror = true;
             UpCamera.ClearDisplayFunctionsList();
             UpCamera.SnapshotColor = Properties.Settings.Default.UpCam_SnapshotColor;
@@ -2978,6 +3024,10 @@ namespace LitePlacer
         private void BasicSetupTab_Begin()
         {
             SetDownCameraDefaults();
+
+            UpCamera.Active = false;
+            DownCamera.Active = false;
+
             UpdateCncConnectionStatus();
             SizeXMax_textBox.Text = Properties.Settings.Default.General_MachineSizeX.ToString();
             SizeYMax_textBox.Text = Properties.Settings.Default.General_MachineSizeY.ToString();
@@ -3072,6 +3122,7 @@ namespace LitePlacer
                     buttonConnectSerial.Text = "Clear Err.";
                     labelSerialPortStatus.Text = "ERROR";
                     labelSerialPortStatus.ForeColor = Color.Red;
+                    ValidMeasurement_checkBox.Checked = false;
                 }
                 else
                 {
@@ -3085,6 +3136,7 @@ namespace LitePlacer
                 buttonConnectSerial.Text = "Connect";
                 labelSerialPortStatus.Text = "Not connected";
                 labelSerialPortStatus.ForeColor = Color.Red;
+                ValidMeasurement_checkBox.Checked = false;
             }
         }
 
@@ -3107,7 +3159,7 @@ namespace LitePlacer
                     }
                 }
             }
-            else  if (Cnc.ErrorState)
+            else if (Cnc.ErrorState)
             {
                 // Attempt to clear the error
                 Cnc.ErrorState = false;
@@ -3126,12 +3178,26 @@ namespace LitePlacer
         }
 
 
-        // TinyG communication monitor textbox 
-        public void DisplayText(string txt)
+        // =================================================================================
+        // Logging textbox
+
+        Color AppCol = Color.Black;
+        public void DisplayText(string txt, KnownColor col = KnownColor.Black, bool force= false)
+        {
+            if (DisableLog_checkBox.Checked && !force)
+            {
+                return;
+            }
+            // intermediate step to get the invoke... work with calls with one or two parameters
+            AppCol = Color.FromName(col.ToString());
+            DisplayTxt(txt);
+        }
+
+        public void DisplayTxt(string txt)
         {
             try
             {
-                if (InvokeRequired) { Invoke(new Action<string>(DisplayText), new[] { txt }); return; }
+                if (InvokeRequired) { Invoke(new Action<string>(DisplayTxt), new[] { txt }); return; }
                 txt = txt.Replace("\n", "");
                 // TinyG sends \n, textbox needs \r\n. (TinyG could be set to send \n\r, which does not work with textbox.)
                 // Adding end of line here saves typing elsewhere
@@ -3140,7 +3206,7 @@ namespace LitePlacer
                 {
                     SerialMonitor_richTextBox.Text = SerialMonitor_richTextBox.Text.Substring(SerialMonitor_richTextBox.Text.Length - 10000);
                 }
-                SerialMonitor_richTextBox.AppendText(txt);
+                SerialMonitor_richTextBox.AppendText(txt, AppCol);
                 SerialMonitor_richTextBox.ScrollToCaret();
             }
             catch
@@ -6105,7 +6171,7 @@ namespace LitePlacer
         // This routine places the [index] row from Job data grid view:
         private bool PlaceRow_m(int RowNo)
         {
-            DisplayText("PlaceRow_m(" + RowNo.ToString() + ")");
+            DisplayText("PlaceRow_m(" + RowNo.ToString() + ")", KnownColor.Blue);
             // Select the row and keep it visible
             JobData_GridView.Rows[RowNo].Selected = true;
             HandleGridScrolling(false, JobData_GridView);
@@ -6396,7 +6462,7 @@ namespace LitePlacer
 
         private bool PlaceComponent_m(string Component, int GroupRow, bool FirstInRow)
         {
-            DisplayText("PlaceComponent_m: Component: " + Component + ", Row:" + GroupRow.ToString());
+            DisplayText("PlaceComponent_m: Component: " + Component + ", Row:" + GroupRow.ToString(), KnownColor.Blue);
             // Skip fiducials
             if (JobData_GridView.Rows[GroupRow].Cells["GroupMethod"].Value.ToString() == "Fiducials")
             {
@@ -6536,6 +6602,7 @@ namespace LitePlacer
                     break;
 
                 case "Recalibrate":
+                    ValidMeasurement_checkBox.Checked = false;
                     if (!PrepareToPlace_m())
                         return false;
                     break;
@@ -6664,12 +6731,14 @@ namespace LitePlacer
                     return false;
                 }
             }
-
-            CurrentGroup_label.Text = "Measuring PCB";
-            if (!BuildMachineCoordinateData_m())
+            if(!ValidMeasurement_checkBox.Checked)
             {
-                CurrentGroup_label.Text = "--";
-                return false;
+                CurrentGroup_label.Text = "Measuring PCB";
+                if (!BuildMachineCoordinateData_m())
+                {
+                    CurrentGroup_label.Text = "--";
+                    return false;
+                }
             }
 
             AbortPlacement = false;
@@ -6711,7 +6780,7 @@ namespace LitePlacer
             string Z_str = Tapes_dataGridView.Rows[TapeNumber].Cells["PickupZ_Column"].Value.ToString();
             if (Z_str == "--")
             {
-                DisplayText("PickUpPart_m(): Probing pickup Z");
+                DisplayText("PickUpPart_m(): Probing pickup Z", KnownColor.Blue);
                 if (!Needle_ProbeDown_m())
                 {
                     return false;
@@ -6732,7 +6801,7 @@ namespace LitePlacer
                     return false;
                 };
                 // Z += 0.5;
-                DisplayText("PickUpPart_m(): Part pickup, Z" + Z.ToString());
+                DisplayText("PickUpPart_m(): Part pickup, Z" + Z.ToString(), KnownColor.Blue);
                 if (!CNC_Z_m(Z))
                 {
                     return false;
@@ -6823,7 +6892,7 @@ namespace LitePlacer
             string Z_str = Tapes_dataGridView.Rows[TapeNum].Cells["PlaceZ_Column"].Value.ToString();
             if (Z_str == "--")
             {
-                DisplayText("PutPartDown_m(): Probing placement Z");
+                DisplayText("PutPartDown_m(): Probing placement Z", KnownColor.Blue);
                 if (!Needle_ProbeDown_m())
                 {
                     return false;
@@ -6843,7 +6912,7 @@ namespace LitePlacer
                         MessageBoxButtons.OK);
                     return false;
                 };
-                DisplayText("PlacePart_m(): Part down, Z" + Z.ToString());
+                DisplayText("PlacePart_m(): Part down, Z" + Z.ToString(), KnownColor.Blue);
                 if (!CNC_Z_m(Z))
                 {
                     return false;
@@ -6949,7 +7018,7 @@ namespace LitePlacer
 
         private bool PickUpLoosePart_m(bool Probe, bool Snapshot, int CADdataRow, string Component)
         {
-            DisplayText("PickUpLoosePart_m: " + Probe.ToString() + ", " + Snapshot.ToString() + ", " + CADdataRow.ToString() + ", " + Component);
+            DisplayText("PickUpLoosePart_m: " + Probe.ToString() + ", " + Snapshot.ToString() + ", " + CADdataRow.ToString() + ", " + Component, KnownColor.Blue);
             if (!CNC_XY_m(Properties.Settings.Default.General_PickupCenterX, Properties.Settings.Default.General_PickupCenterY))
             {
                 return false;
@@ -7082,7 +7151,7 @@ namespace LitePlacer
 
             int TapeNum = 0;
             string Component = CadData_GridView.Rows[CADdataRow].Cells["Component"].Value.ToString();
-            DisplayText("PlacePart_m, Component: " + Component + ", CAD data row: " + CADdataRow.ToString());
+            DisplayText("PlacePart_m, Component: " + Component + ", CAD data row: " + CADdataRow.ToString(), KnownColor.Blue);
 
             // Preparing:
             switch (Method)
@@ -8730,7 +8799,7 @@ namespace LitePlacer
             // remove leading spaces
             for (int i = 0; i < Tokens.Count; i++)
             {
-                Tokens[i]= Tokens[i].Trim();
+                Tokens[i] = Tokens[i].Trim();
             }
             return (Tokens);
         }
@@ -10487,6 +10556,7 @@ namespace LitePlacer
             G_numericUpDown.Value = G;
             B_numericUpDown.Value = B;
             Color_Box.BackColor = Color.FromArgb(R, G, B);
+            img.Dispose();
         }
 
         private void Display_dataGridView_DataError(object sender, DataGridViewDataErrorEventArgs anError)
@@ -10734,7 +10804,36 @@ namespace LitePlacer
             }
 
         }
+
+        private void DisableLog_checkBox_CheckedChanged(object sender, EventArgs e)
+        {
+            if (DisableLog_checkBox.Checked)
+            {
+                DisplayText("** Logging disabled **", KnownColor.Black, true);
+            }
+        }
+
     }	// end of: 	public partial class FormMain : Form
+
+    // allows additionl of color info to displayText 
+    public static class RichTextBoxExtensions
+    {
+        public static void AppendText(this RichTextBox box, string text, Color color)
+        {
+            if (color != box.ForeColor)
+            {
+                box.SelectionStart = box.TextLength;
+                box.SelectionLength = 0;
+                box.SelectionColor = color;
+                box.AppendText(text);
+                box.SelectionColor = box.ForeColor;
+            }
+            else
+            {
+                box.AppendText(text);
+            }
+        }
+    }
 
 
 }	// end of: namespace LitePlacer
