@@ -384,9 +384,16 @@ namespace LitePlacer
 		{
 			// Take a snapshot:
 			CopyFrame = true;
+            int timeout = 0;
 			do
 			{
 				Thread.Sleep(10);
+                Application.DoEvents();
+                timeout++;
+                if (timeout > 100)
+                {
+                    throw new Exception("Camera measurement frame timout.");
+                }
 			} while (CopyFrame);
 			if (MeasurementFunctions != null)
 			{
@@ -1139,11 +1146,24 @@ namespace LitePlacer
 		public int GetClosestCircle(out double X, out double Y, double MaxDistance)
 		// Sets X, Y position of the closest circle to the frame center in pixels, return value is number of circles found
 		{
-			List<Shapes.Circle> GoodCircles = new List<Shapes.Circle>();
-			List<Shapes.Circle> RawCircles = FindCirclesFunct(GetMeasurementFrame());
+			
 			X = 0.0;
 			Y = 0.0;
-			if (RawCircles.Count == 0)
+
+            List<Shapes.Circle> GoodCircles;
+            List<Shapes.Circle> RawCircles;
+            try
+            {
+                GoodCircles = new List<Shapes.Circle>();
+                RawCircles = FindCirclesFunct(GetMeasurementFrame());
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                return (0);
+            }
+
+            if (RawCircles.Count == 0)
 			{
 				return (0);
 			}

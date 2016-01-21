@@ -473,6 +473,7 @@ namespace LitePlacer
                             if (bw.ReadBoolean())
                             {
                                 dgv.Rows[i].Cells[j].Value = bw.ReadString();
+                                Console.Write(dgv.Rows[i].Cells[j].Value);
                             }
                             else bw.ReadBoolean();
                         }
